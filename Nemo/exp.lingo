@@ -1,0 +1,48 @@
+program     = "{" description*:ds "}" body:b {Program(:ds, :b)};
+description = ws "var " variable:v ":" type:t ";" ws {Description(:v, :t)};
+type        = int | bool | arr;
+int         = ws"int"ws {IntType()};
+bool        = ws"bool"ws {BoolType()};
+arr         = ws"["ws type:t ws"]"ws {ArrayType(:t)};
+body        = assignment | ndetExec | ndetIt | detExec | test;   
+
+assignment  = variable:v "=" exp:e {Assignment(:v, :e)};
+ndetExec    = ws "{" body:f "U" body:s "}" ws {NDetExec(:f, :s)};
+ndetIt      = ws "{" body:b"}*" ws {NDetIt(:b)};
+detExec     = ws "{" body:f ";" body:s "}" ws {DetExec(:f, :s)};
+test        = ws "{" exp:e "}?" ws {Test(:e)};
+
+exp         = sub | sum | prod | div | mod | less | more | lessOrEqual | moreOrEqual | notEqual | equal | and | or | not | imp | xor | get | set | len | concat | print | integer | variable | boolean;
+sub         = ws "("exp:l "-" exp:r")" ws {Sub(:l, :r)};
+sum         = ws "("exp:l "+" exp:r")" ws {Sum(:l, :r)};
+prod        = ws "("exp:l "*" exp:r")" ws {Prod(:l, :r)};
+div         = ws "("exp:l "/" exp:r")" ws {Div(:l, :r)};
+mod         = ws "("exp:l "%" exp:r")" ws {Mod(:l, :r)};
+less        = ws "("exp:l "<" exp:r")" ws {Less(:l, :r)};
+more        = ws "("exp:l ">" exp:r")" ws {Less(:r, :l)};
+lessOrEqual = ws "("exp:l "<="exp:r")" ws {Or(Less(:l, :r), Equal(:l, :r))};
+moreOrEqual = ws "("exp:l ">="exp:r")" ws {Or(Less(:r, :l), Equal(:l, :r))};
+notEqual    = ws "("exp:l "!="exp:r")" ws {Not(Equal(:l, :r))};
+equal       = ws "("exp:l "=="exp:r")" ws {Equal(:l, :r)};
+and         = ws "("exp:l "&" exp:r")" ws {And(:l, :r)};
+or          = ws "("exp:l "|" exp:r")" ws {Or(:l, :r)};
+not         = ws "(" ws "!" ws exp:r")" ws {Not(:r)};
+imp         = ws "("exp:l "->"exp:r")" ws {Imp(:l, :r)};
+xor         = ws "("exp:l "^" exp:r")" ws {Xor(:l, :r)};
+get         = ws "get" ws "("variable:v","exp:idx")" ws {Get(:v, :idx)};
+set         = ws "set" ws "("variable:v","exp:idx","exp:val")" ws {SetArr(:v, :idx, :val)};
+len         = ws "len" ws "(" exp:e ")" {Len(:e)};
+concat      = ws "concat" ws "(" exp:l "," exp:r ")" ws {Concat(:l, :r)};
+print       = ws "print" ws "(" exp:l ")" ws {Print(:l)};
+boolean     = true | false;
+true        = ws "true" ws {Bool(1)};
+false       = ws "false" ws {Bool(0)};
+
+integer     = ws digit+$s ws {Int(s2i($s))};
+digit       ='0'-'9'; 
+
+variable    = ws char+$s ws {Var($s)};
+char        ='a'-'z' | 'A' - 'Z';   
+
+ws = s*;
+s = " " | "\t" | "\n" | "\r\n";

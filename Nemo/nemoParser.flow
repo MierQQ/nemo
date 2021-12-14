@@ -1,0 +1,837 @@
+import lingo/pegcode/driver;
+import string;
+
+export {
+    Parse(s: string) -> Maybe<Program>;
+    Program(descs: [Description], body: Body);
+    N2VN(prog: Program) -> VNProgramm;
+    VNRun(programm: VNProgramm) -> void;
+}
+
+Exp ::= Sub, Sum, Prod, Div, Less, Equal, Get, SetArr, Len, Concat, Print, Int, Var, And, Or, Not, Imp, Xor, Bool;
+Sub(l: Exp, r: Exp);
+Sum(l: Exp, r: Exp);
+Prod(l: Exp, r: Exp);
+Div(l: Exp, r: Exp);
+Less(l: Exp, r: Exp);
+Equal(l: Exp, r: Exp);
+And(l: Exp, r: Exp);
+Or(l: Exp, r: Exp);
+Not(e: Exp);
+Imp(l: Exp, r: Exp);
+Xor(l: Exp, r: Exp);
+Get(arr: Exp, idx: Exp);
+SetArr(arr: Exp, idx: Exp, val: Exp);
+Len(arr: Exp);
+Concat(lArr: Exp, rArr: Exp);
+Print(e: Exp);
+Int(value: int);
+Bool(value: bool);
+Var(str: string);
+
+Program(descs: [Description], body: Body);
+Description(var: Var, type: VarType);
+VarType ::= IntType, BoolType, ArrayType;
+IntType();
+BoolType();
+ArrayType(type: VarType);
+
+Body ::= Assignment, NDetExec, NDetIt, DetExec, Test;
+Assignment(var: Var, e: Exp);
+NDetExec(f: Body, s: Body);
+NDetIt(b: Body);
+DetExec(f: Body, s: Body);
+Test(e:Exp);
+
+Parse(s: string) -> Maybe<Program> {
+    gram = "#include exp.lingo";
+    parser = compilePegGrammar(gram);
+    result = parsic3(parser, s, defaultPegActions, Program([], Test(Int(0))));
+    //println(result);
+    if (result.third == "") {
+        Some(result.first);
+    } else {
+        None();
+    }
+}
+
+VNProgramm(exps: VNBody, descs: [Description]);
+VNBody(exps: Tree<int, VNOperators>);
+VNOperators ::= VNAssignment, VNBranching;
+VNAssignment(var: string, exp: Exp, goTo: [int]);
+VNBranching(exp: Exp, vnThen: [int], vnElse: [int]);
+
+N2VN(prog: Program) -> VNProgramm {
+    vnBody = NB2VNB(prog.body);
+    VNProgramm(vnBody, prog.descs);
+}
+
+GetMaxKey(body: VNBody) -> int {
+    foldTree(body.exps, 0, \k,v,acc -> {
+        if (k>acc) {
+            k;
+        } else {
+            acc;
+        }
+    })
+}
+
+ShiftMarksInOp(op: VNOperators, shift: int) -> VNOperators {
+    switch (op : VNOperators) {
+        VNAssignment(var, e, goTo): {
+            m = map(goTo, \x -> {
+                    x + shift;
+                });
+            VNAssignment(var, e, m);
+        }
+        VNBranching(e, th, el): {
+            sTh = map(th, \x -> {
+                x + shift;
+            });
+            sEl = map(el, \x -> {
+                x + shift;
+            });
+            VNBranching(e, sTh, sEl);
+        }
+    }
+}
+
+ReplaceOpMarksInBody(body: VNBody, mark: int, newMark: int) -> VNBody {
+    VNBody(foldTree(body.exps, makeTree(), \k,v,acc -> {
+        switch (v : VNOperators) {
+                VNAssignment(var, e, goTo): {
+                    m = map(goTo, \x -> {
+                        if (x == mark) {
+                            newMark;
+                        } else {
+                            x;
+                        }
+                    });
+                    setTree(acc, k, VNAssignment(var, e, m));
+                }
+                VNBranching(e, th, el): {
+                    sTh = map(th, \x -> {
+                        if (x == mark) {
+                            newMark;
+                        } else {
+                            x;
+                        }
+                    });
+                    sEl = map(el, \x -> {
+                        if (x == mark) {
+                            newMark;
+                        } else {
+                            x;
+                        }
+                    });
+                    setTree(acc, k, VNBranching(e, sTh, sEl));
+                }
+            }
+    }));
+}
+
+ShiftBodyMarks(body: VNBody, shift: int) -> VNBody {
+    VNBody(foldTree(body.exps, makeTree(), \k,v,acc -> {
+        setTree(acc, k+shift, ShiftMarksInOp(v, shift));
+    }));
+}
+
+ShiftMarkInOpByIndex(body: VNBody, indexMark: int, shift: int) -> VNBody {
+    VNBody(foldTree(body.exps, makeTree(), \k,v,acc -> {
+        if (k == indexMark) {
+            setTree(acc, k, ShiftMarksInOp(v, shift));
+        } else {
+            setTree(acc, k, v);
+        }
+    }));
+} 
+
+ConcatBodies(f: VNBody, s: VNBody) -> VNBody{
+    VNBody(foldTree(f.exps, s.exps, \k,v,acc -> {
+        setTree(acc, k, v);
+    }));
+}
+
+NB2VNB(body: Body) -> VNBody {
+    switch (body : Body) {
+        Assignment(v, e): {
+            ass = VNAssignment(v.str, e, [1]);
+            VNBody(setTree(makeTree(), 0, ass));
+        }
+        NDetExec(f, s): {
+            fVNB = ShiftBodyMarks(NB2VNB(f), 1);
+            maxMarkFirst = GetMaxKey(fVNB);
+            sVNB = ShiftBodyMarks(NB2VNB(s), maxMarkFirst + 1);
+            maxMarkSecond = GetMaxKey(sVNB);
+            start = VNBranching(Equal(Int(1), Int(1)), [1, maxMarkFirst+1], []);
+            startBody = VNBody(setTree(makeTree(), 0, start));
+            firstBodyWithNormalEnd = ReplaceOpMarksInBody(fVNB, maxMarkFirst + 1, maxMarkSecond + 1);
+            ConcatBodies(ConcatBodies(startBody, firstBodyWithNormalEnd), sVNB);
+        }
+        NDetIt(b): {
+            itVNB = ShiftBodyMarks(NB2VNB(b), 1);
+            maxMark = GetMaxKey(itVNB);
+            start = VNBranching(Equal(Int(1), Int(1)), [1, maxMark+1], []);
+            startBody = VNBody(setTree(makeTree(), 0, start));
+            itBodyWithNormalEnd = ReplaceOpMarksInBody(itVNB, maxMark+1, 0);
+            ConcatBodies(startBody, itBodyWithNormalEnd);
+        }
+        DetExec(f, s): {
+            fVNB = NB2VNB(f);
+            sVNB = NB2VNB(s);
+            maxMark = GetMaxKey(fVNB);
+            shiftedSVNB = ShiftBodyMarks(sVNB, maxMark + 1);
+            ConcatBodies(fVNB, shiftedSVNB);
+        }
+        Test(b): {
+            test = VNBranching(b, [1], []);
+            VNBody(setTree(makeTree(), 0, test));
+        }
+    }
+}
+
+Domain::= IntDomain, BoolDomain, ArrayDomain;
+IntDomain(value: int);
+BoolDomain(value: bool);
+ArrayDomain(value: [Domain], type: VarType);
+
+GetDomain(type: VarType) -> Domain{
+    switch (type : VarType) {
+        IntType(): {
+            IntDomain(0);
+        }
+        BoolType(): {
+            BoolDomain(false);
+        }
+        ArrayType(arrType): {
+            switch (arrType : VarType) {
+                IntType(): {
+                    ArrayDomain([], IntType());
+                }
+                BoolType(): {
+                    ArrayDomain([], BoolType());
+                }
+                ArrayType(aT): {
+                    ArrayDomain([GetDomain(aT)], ArrayType(aT));
+                }
+            }
+        }
+    }
+}
+
+State(label: int, mem: Tree<string, Domain>);
+
+InitStateOfProgramm(descs: [Description]) -> State {
+    fold(descs, State(0, makeTree()), \acc, x -> {
+        State(0, setTree(acc.mem, x.var.str, GetDomain(x.type)));
+    });
+}
+
+
+Solve(ex: Exp, mem: Tree<string, Domain>, descs: [Description]) -> Domain {
+    switch (ex : Exp) {
+        Sub(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            IntDomain(vara-varb);
+                        }
+                        BoolDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    }        
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Sum(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            IntDomain(vara + varb);
+                        }
+                        BoolDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    }        
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Prod(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            IntDomain(vara*varb);
+                        }
+                        BoolDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    }        
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Div(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            IntDomain(vara/varb);
+                        }
+                        BoolDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    }        
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Less(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            BoolDomain(vara<varb);
+                        }
+                        BoolDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    }        
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Equal(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            BoolDomain(vara==varb);
+                        }
+                        BoolDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    }        
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        And(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    quit(-4); 
+                    IntDomain(0);      
+                }
+                BoolDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        BoolDomain(varb): {
+                            BoolDomain(vara && varb);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    } 
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Or(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    quit(-4);       
+                    IntDomain(0);
+                }
+                BoolDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        BoolDomain(varb): {
+                            BoolDomain(vara || varb);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    } 
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Not(e): {
+            a = Solve(e, mem, descs);
+            switch (a : Domain) {
+                IntDomain(var): {
+                    quit(-4);      
+                    IntDomain(0); 
+                }
+                BoolDomain(var): {
+                    BoolDomain(!var);
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Imp(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    quit(-4);     
+                    IntDomain(0);  
+                }
+                BoolDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        BoolDomain(varb): {
+                            BoolDomain(!vara || varb);
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    } 
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Xor(l, r): {
+            a = Solve(l, mem, descs);
+            b = Solve(r, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    quit(-4);     
+                    IntDomain(0);  
+                }
+                BoolDomain(vara): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        BoolDomain(varb): {
+                            BoolDomain(!(vara && varb || !vara && !varb));
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    } 
+                }
+                ArrayDomain(value, type): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+            }
+        }
+        Get(arr, idx): {
+            a = Solve(arr, mem, descs);
+            i = Solve(idx, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    quit(-4);       
+                    IntDomain(0);
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    switch (i : Domain) {
+                        IntDomain(varb): {
+                            value[varb];
+                        }
+                        BoolDomain(varb): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(ivalue, itype): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    } 
+                }
+            }
+        }
+        SetArr(arr, idx, val): {
+            a = Solve(arr, mem, descs);
+            i = Solve(idx, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    quit(-4);     
+                    IntDomain(0);  
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    switch (i : Domain) {
+                        IntDomain(varb): {
+                            v = Solve(val, mem, descs);
+                            if (type != GetType(v)) {
+                                quit(-4);
+                            }
+                            if (varb == length(value)) {
+                                ArrayDomain(concat(value, [v]), type);
+                            } else {
+                                ArrayDomain(mapi(value, \j,x -> {
+                                    if (j == varb) {
+                                        v;
+                                    } else {
+                                        x;
+                                    }
+                                }), type);
+                            }
+                        }
+                        BoolDomain(var): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(ivalue, itype): {
+                            quit(-4);
+                            IntDomain(0);
+                        }
+                    } 
+                }
+            }
+        }
+        Len(arr): {
+            a = Solve(arr, mem, descs);
+            switch (a : Domain) {
+                IntDomain(var): {
+                    quit(-4);  
+                    IntDomain(0);     
+                }
+                BoolDomain(var): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(value, type): {
+                    IntDomain(length(value));
+                }
+            }
+        }
+        Concat(lArr, rArr): {
+            a = Solve(lArr, mem, descs);
+            b = Solve(rArr, mem, descs);
+            switch (a : Domain) {
+                IntDomain(vara): {
+                    quit(-4);    
+                    IntDomain(0); 
+                }
+                BoolDomain(vara): {
+                    quit(-4);
+                    IntDomain(0);
+                }
+                ArrayDomain(valuea, typea): {
+                    switch (b : Domain) {
+                        IntDomain(varb): {
+                            quit(-4);     
+                            IntDomain(0);
+                        }
+                        BoolDomain(varb): {
+                            quit(9);
+                            IntDomain(0);
+                        }
+                        ArrayDomain(valueb, typeb): {
+                            if (typea != typeb) {
+                                quit(-4);
+                            }
+                            ArrayDomain(concat(valuea, valueb), typea);
+                        }
+                    }        
+                }
+            }
+        }
+        Print(e): {
+            //println(Solve(e, mem, descs));
+            PrintNormalForm(Solve(e, mem, descs));
+            IntDomain(0);
+        }
+        Int(value): {
+            IntDomain(value);
+        }
+        Bool(value): {
+            BoolDomain(value);
+        }
+        Var(str): {
+            a = foldTree(mem, [], \k, value, acc -> {
+                if (k == str) {
+                    concat(acc, [value]);
+                } else {
+                    acc;
+                }
+            });
+            if (length(a) == 0) {
+                quit(-3);
+            } 
+            //println(a);
+            a[0];
+        }
+    }
+}
+
+PrintNormalForm(a: Domain) -> void {
+    switch (a: Domain) {
+        IntDomain(val) : {
+            println(val);
+        }
+        BoolDomain(val) : {
+            println(val);
+        }
+        ArrayDomain(val, t) : {
+            println("[");
+            map(val, \v -> {
+                PrintNormalForm(v);
+                ",";
+            });
+            println("]");
+        }
+    }
+}
+
+S(b:bool, type: VarType);
+
+GetVarType(var: string, descs: [Description]) -> VarType {
+    a = fold(descs, S(false, IntType()), \acc, x -> {
+        if (x.var.str == var) {
+            S(true, x.type);
+        } else {
+            acc;
+        }
+    })
+    if (a.b == false) {
+        quit(-2);
+    }
+    a.type;
+}
+
+GetType(d: Domain) -> VarType{
+    switch (d : Domain) {
+        IntDomain(var): {
+            IntType();
+        }
+        BoolDomain(var): {
+            BoolType();
+        }
+        ArrayDomain(var, type): {
+            type;
+        }
+    }
+}
+
+DoTurn(states: [State], body: VNBody, descs: [Description]) -> [State] {
+    fold(states, [], \acc, state -> {
+        currentLabel = state.label;
+        if (currentLabel == GetMaxKey(body) + 1) {
+            acc;
+        } else {
+            a = foldTree(body.exps, [], \k, value, accum -> {
+                if (k == currentLabel) {
+                    concat(accum, [value]);
+                } else {
+                    accum;
+                }
+            });
+            if (length(a) == 0) {
+                quit(-1);
+            }
+            a[0];    
+            
+            operator = a[0];
+            switch (operator : VNOperators) {
+                VNAssignment(var, e, goTo): {
+                    solvedExp = Solve(e, state.mem, descs);
+                    if (GetType(solvedExp) != GetVarType(var, descs)) {
+                        quit(-1);
+                    }
+                    mem = setTree(state.mem, var, solvedExp);
+                    if (length(goTo) == 0) {
+                        acc;
+                    } else {
+                        array = map(goTo, \label -> {
+                            State(label, mem);
+                        });
+                        concat(array, acc);
+                    }
+                }
+                VNBranching(e, t, el): {
+                    cond = Solve(e, state.mem, descs);
+                    switch (cond : Domain) {
+                        IntDomain(var): {
+                            if (var != 0) {
+                                if (length(t) == 0) {
+                                    acc;
+                                } else {
+                                    array = map(t, \label -> {
+                                        State(label, state.mem);
+                                    });
+                                    concat(array, acc);
+                                }
+                            } else {
+                                if (length(el) == 0) {
+                                    acc;
+                                } else {
+                                    array = map(el, \label -> {
+                                        State(label, state.mem);
+                                    });
+                                    concat(array, acc);
+                                }
+                            }
+                        }
+                        BoolDomain(var): {
+                            if (var) {
+                                if (length(t) == 0) {
+                                    acc;
+                                } else {
+                                    array = map(t, \label -> {
+                                        State(label, state.mem);
+                                    });
+                                    concat(array, acc);
+                                }
+                            } else {
+                                if (length(el) == 0) {
+                                    acc;
+                                } else {
+                                    array = map(el, \label -> {
+                                        State(label, state.mem);
+                                    });
+                                    concat(array, acc);
+                                }
+                            }
+                        }
+                        ArrayDomain(value, type): {
+                            quit(-1);
+                            [];
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+
+WhileNotEmptyDoTurns(states: [State], body: VNBody, descs: [Description]) -> void {
+    if (length(states) != 0) {
+        WhileNotEmptyDoTurns(DoTurn(states, body, descs), body, descs);
+    }
+}
+
+VNRun(programm: VNProgramm) -> void {
+    state = InitStateOfProgramm(programm.descs);
+    WhileNotEmptyDoTurns([state], programm.exps, programm.descs);
+}

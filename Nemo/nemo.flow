@@ -1,0 +1,58 @@
+import runtime;
+import nemoParser;
+
+main() -> void {
+    a = Parse(
+"{
+    var a : int;
+    var b : int; 
+    var p : int; 
+    var i : int; 
+    var z : int;
+} 
+{
+    z = 15;
+    { 
+        i = 0;
+        {
+            a = 1;
+            {
+                b = 1;
+                {
+                    {
+                        {
+                            {(i < z)}?;
+                            {
+                                p = print(a);
+                                {
+                                    p = a;
+                                    {
+                                        a = b; 
+                                        {
+                                            b = (p + b);
+                                            i = (i + 1) 
+                                        } 
+                                    }
+                                }
+                            }
+                        }
+                    }*;
+                    {(i >= z)}?
+                }
+            }
+        }
+    }
+}
+");
+    switch(a : Maybe<Program>) {
+        Some(prog) : {
+            //println(prog);
+            //println(N2VN(prog));
+            VNRun(N2VN(prog));
+        }
+        None() : println("Something gone wrong\n");
+    }
+}
+
+
+//{var a : int; var b : int; var p : int; var i : int;} {{a = 1; {{a = (a+1);{(a != 5)}?}}*}; a = print(a)}

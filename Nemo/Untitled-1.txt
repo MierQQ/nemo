@@ -1,0 +1,67 @@
+
+
+Числа Фиб(еще проверка цикла):
+{
+    var a : int;
+    var b : int; 
+    var p : int; 
+    var i : int; 
+    var z : int;
+} 
+{
+    z = 15;
+    { 
+        i = 0;
+        {
+            a = 1;
+            {
+                b = 1;
+                {
+                    {
+                        {
+                            {(i < z)}?;
+                            {
+                                p = print(a);
+                                {
+                                    p = a;
+                                    {
+                                        a = b; 
+                                        {
+                                            b = (p + b);
+                                            i = (i + 1) 
+                                        } 
+                                    }
+                                }
+                            }
+                        }
+                    }*;
+                    {(i >= z)}?
+                }
+            }
+        }
+    }
+}
+
+Заполнение массива:
+{var arr : [int]; var x : int; var i:int;} {{i=0;{{{{(i < 10)}?;{arr = set(arr, i, i); i=(i+1)}}}*;{(i>=10)}?}};x = print(arr)}
+
+Получение элемента из массива:
+{var arr : [int]; var x : int; var i:int;} {{i=0;{{{{(i < 10)}?;{arr = set(arr, i, i); i=(i+1)}}}*;{(i>=10)}?}};{x = print(arr); x = print(get(arr, 4))}}
+
+Проверка масива массивов:
+{var arr : [int]; var x : int; var i:int; var a : [[int]];} {{{{{i=0;{{{{(i < 10)}?;{arr = set(arr, i, i); i=(i+1)}}}*;{(i>=10)}?}};{x = print(arr); x = print(get(arr, 4))}}; a =set(a, 0, arr)}; a = set(a, 1, arr)}; x = print(a)}
+
+Проверка ветвления:
+{var x : int;} {x = 115 ; {{{(x == 10)}?;  x = print(x)} U {{(x != 10)}?; x = print(x) }}}
+
+
+//while (c) {a}
+{
+    {
+        {
+        {c}?;
+        //a
+        }
+    }*;
+    {(!c)}?
+}

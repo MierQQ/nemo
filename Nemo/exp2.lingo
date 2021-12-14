@@ -1,0 +1,34 @@
+program     = "{" desc* "}" "{" body "}";
+desc        = ws "var " variable ":" ws type ws ";" ws;
+variable    = ws char+ ws ;
+type        = array | int | bool;
+array       = "[" ws type ws "]";
+int         = "int";
+bool        = "bool";
+body        = test | assigment | detExec | ndetExec | ndetIt | print | "#";
+
+assigment   = variable"="exp;
+test        = exp "?";
+detExec     = "{" dbody+ "}";
+dbody       = body ";";
+ndetExec    = "{" nbody+ "}";
+nbody       = body "^";
+ndetIt      = body "*";
+print       = "print(" exp ")";
+
+exp         = integer | variable | sub | sum | prod | div | less | equal | get | set;
+sub         = "("exp"-"exp")";
+sum         = "("exp"+"exp")";
+prod        = "("exp"*"exp")";
+div         = "("exp"/"exp")";
+less        = "("exp"<"exp")";
+equal       = "("exp"=="exp")";
+get         = "get""("exp","exp")";
+set         = "set""("exp","exp","exp")";
+
+integer     = ws digit+ ws;
+digit       = '0' - '9';
+char        = 'a' - 'z' | 'A' - 'Z';
+
+ws          = s*;
+s           = " ";

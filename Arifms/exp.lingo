@@ -1,0 +1,10 @@
+exp= sum|prod|sub|div|int|var;
+sum= space "(" space exp:l space "+" space exp:r space ")" space {ArSum(:l, :r)};
+prod= space "(" space exp:l space "*" space exp:r space ")" space {ArProd(:l, :r)};
+sub= space "(" space exp:l space "-" space exp:r space ")" space {ArSub(:l, :r)};
+div= space "(" space exp:l space "/" space exp:r space ")" space {ArDiv(:l, :r)};
+int= digit+ $i {ArInt(s2i($i))};
+var= char+ $i {ArVar($i)};
+digit='0' - '9';
+char='a' - 'z' | 'A' - 'Z';
+space = " "* | "\t"* | "\n"* | space space;

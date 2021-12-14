@@ -1,0 +1,262 @@
+import runtime;
+import lingo/pegcode/driver;
+import string;
+import ds/tree;
+import ds/array;
+import ds/arrayutils;
+
+ArExp ::= ArSum, ArProd, ArSub, ArDiv, ArInt, ArVar, ArMinus;
+ArSum(l: ArExp, r: ArExp);
+ArProd(l: ArExp, r: ArExp);
+ArSub(l: ArExp, r: ArExp);
+ArDiv(l: ArExp, r: ArExp);
+ArInt(val: int);
+ArVar(str: string);
+ArMinus(exp: ArExp);
+
+
+Parse(s: string) -> Maybe<ArExp> {
+    gram = "#include exp.lingo";
+    parser = compilePegGrammar(gram);
+    result = parsic3(parser, s, defaultPegActions, ArInt(0));
+    println(result);
+    if (result.third == "") {
+        Some(result.first);
+    } else {
+        None();
+    }
+}
+
+Diff(tree: ArExp, dStr: string) -> ArExp {
+    switch (tree : ArExp) {
+        ArSum(l, r): {
+            ArSum(Diff(l, dStr), Diff(r, dStr));
+        }
+        ArSub(l, r): {
+            ArSub(Diff(l, dStr), Diff(r, dStr));
+        }
+        ArProd(l, r): {
+            ArSum(ArProd(Diff(l, dStr), r), ArProd(l, Diff(r, dStr)));
+        }
+        ArDiv(l, r): {
+            ArDiv(ArSub(ArProd(Diff(l, dStr), r), ArProd(l, Diff(r, dStr))), ArProd(r, r));
+        }
+        ArInt(val): {
+            ArInt(0);
+        }
+        ArVar(str): {
+            if (str == dStr) {
+                ArInt(1);
+            } else {
+                ArInt(0);
+            }
+        }
+        ArMinus(e): {
+            ArMinus(Diff(e, dStr));
+        }
+    }
+}
+
+SimplifyExp(tree: ArExp) -> ArExp {
+    switch (tree : ArExp) {
+        ArSum(l, r): {
+            left = SimplifyExp(l);
+            right = SimplifyExp(r);
+            if (left == ArInt(0) && right == ArInt(0)) {
+                ArInt(0);
+            } else if (left == ArInt(0)) {
+                right;
+            } else if (right == ArInt(0)) {
+                left;
+            } else {
+                ArSum(left, right);
+            }
+        }
+        ArSub(l, r): {
+            left = SimplifyExp(l);
+            right = SimplifyExp(r);
+            if (left == ArInt(0) && right == ArInt(0)) {
+                ArInt(0);
+            } else if (left == ArInt(0)) {
+                ArMinus(right);
+            } else if (right == ArInt(0)) {
+                left;
+            } else {
+                ArSub(left, right);
+            }
+        }
+        ArProd(l, r): {
+            left = SimplifyExp(l);
+            right = SimplifyExp(r);
+            if (left == ArInt(0) || right == ArInt(0)) {
+                ArInt(0);
+            } else if (left == ArInt(1)) {
+                right;
+            } else if (right == ArInt(1)) {
+                left;
+            } else {
+                ArProd(left, right);
+            }
+        }
+        ArDiv(l, r): {
+            left = SimplifyExp(l);
+            right = SimplifyExp(r);
+            if (left == ArInt(0)) {
+                ArInt(0);
+            } else if (right == ArInt(1)) {
+                left;
+            } else {
+                ArDiv(left, right);
+            }
+        }
+        ArInt(val): {
+            ArInt(val);
+        }
+        ArVar(str): {
+            ArVar(str);
+        }
+        ArMinus(e): {
+            a = SimplifyExp(e);
+            if (a == ArInt(0)) {
+                ArInt(0);
+            } else {
+                ArMinus(a);
+            }
+        }
+    }
+}
+
+T2S(exp : ArExp) -> string {
+    switch(exp : ArExp) {
+        ArSum(l, r) : {
+            "(" + T2S(l) + "+" + T2S(r) + ")";
+        }
+        ArProd(l, r) : {
+            "(" + T2S(l) + "*" + T2S(r) + ")";
+        }
+        ArSub(l, r) : {
+            "(" + T2S(l) + "-" + T2S(r) + ")";
+        }
+        ArDiv(l, r) : {
+            "(" + T2S(l) + "/" + T2S(r) + ")";
+        }
+        ArMinus(e) : {
+            "(-" + T2S(e) + ")";
+        }
+        ArInt(val) : {
+            i2s(val);
+        }
+        ArVar(str) : {
+            str;
+        }
+    }
+}
+
+Mono(mono : Tree<string, int>);
+Poly(poly : Tree<Mono, int>);
+Frac(num : Poly, den : Poly);
+
+PolySum(l: Poly, r: Poly) -> Poly {
+    Poly(foldTree(l.poly, r.poly, \k,v,acc -> {
+        val = lookupTree(acc, k);
+        switch(val: Maybe) {
+            Some(coef): {
+                setTree(acc, k, v + coef);
+            }
+            None(): {
+                setTree(acc, k, v);
+            }
+        }
+    }));
+}
+
+PolySub(l: Poly, r: Poly) -> Poly {
+    Poly(foldTree(r.poly, l.poly, \k,v,acc -> {
+        val = lookupTree(acc, k);
+        switch(val: Maybe) {
+            Some(coef): {
+                setTree(acc, k, coef - v);
+            }
+            None(): {
+                setTree(acc, k, -v);
+            }
+        }
+    }));
+}
+
+MonomeProd(l: Mono, r: Mono) -> Mono {
+    result = mergeTreeCustom(l.mono, r.mono, \k,x,y-> x+y);
+    Mono(result);
+}
+
+PolyProd(l: Poly, r: Poly) -> Poly {
+    foldTree(l.poly, Poly(makeTree()), \k,v,acc -> {
+        foldTree(r.poly, acc, \key,val,accum -> {
+            PolySum(accum, Poly(setTree(makeTree(), MonomeProd(k, key), val*v)));
+        })
+    });
+}
+
+ArExp2Frac(exp : ArExp) -> Frac {
+    switch (exp : ArExp) {
+        ArSum(l, r): {
+            a = ArExp2Frac(l);
+            b = ArExp2Frac(r);
+            Frac(PolySum(PolyProd(a.num, b.den), PolyProd(b.num, a.den)), PolyProd(a.den, b.den));
+        }
+        ArSub(l, r): {
+            a = ArExp2Frac(l);
+            b = ArExp2Frac(r);
+            Frac(PolySub(PolyProd(a.num, b.den), PolyProd(b.num, a.den)), PolyProd(a.den, b.den));
+        }
+        ArProd(l, r): {
+            a = ArExp2Frac(l);
+            b = ArExp2Frac(r);
+            Frac(PolyProd(a.num, b.num), PolyProd(a.den, b.den));
+        }
+        ArDiv(l, r): {
+            a = ArExp2Frac(l);
+            b = ArExp2Frac(r);
+            Frac(PolyProd(a.num, b.den), PolyProd(a.den, b.num));
+        }
+        ArInt(value): {
+            Frac(Poly(setTree(makeTree(), Mono(makeTree()), value)), Poly(setTree(makeTree(), Mono(makeTree()), 1)));
+        }
+        ArVar(str): {
+            Frac(Poly(setTree(makeTree(), Mono(setTree(makeTree(), str, 1)), 1)), Poly(setTree(makeTree(), Mono(makeTree()), 1)));
+        }
+        ArMinus(ex): {
+            a = ArExp2Frac(ex);
+            Frac(PolyProd(a.num, Poly(setTree(makeTree(), Mono(makeTree()), -1))), a.den);
+        }
+    }
+}
+
+Monome2Str(mono: Mono) -> string {
+    foldTree(mono.mono, "", \k,v,acc -> {
+        acc + k + "^" + i2s(v);
+    });
+}
+
+Frac2Str(frac: Frac) -> string {
+    num = foldTree(frac.num.poly, "", \k,v,acc -> {
+        acc + "+" + i2s(v) + Monome2Str(k);
+    });
+    den = foldTree(frac.den.poly, "", \k,v,acc -> {
+        acc + "+" + i2s(v) + Monome2Str(k);
+    });
+    num + "\n" + den;
+}
+
+main() -> void {
+    a = Parse("((((x*x)/y)+y)+3)");
+    switch(a : Maybe<ArExp>) {
+        Some(tree) : {
+            println(T2S(tree));
+            //println(T2S(SimplifyExp(Diff(tree, "x"))));
+            //println(ArExp2Frac(tree));
+            println(Frac2Str(ArExp2Frac(tree)));
+        }
+        None() : println("Something gone wrong\n");
+    }
+}

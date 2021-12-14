@@ -1,0 +1,148 @@
+import runtime;
+import lingo/pegcode/driver;
+import string;
+
+ArExp ::= ArSum, ArProd, ArSub, ArDiv, ArInt;
+ArSum(l: ArExp, r: ArExp);
+ArProd(l: ArExp, r: ArExp);
+ArSub(l: ArExp, r: ArExp);
+ArDiv(l: ArExp, r: ArExp);
+ArInt(val: int);
+
+Calculate(value: ArExp) -> int {
+    switch (value: ArExp) {
+        ArSum(l, r) : {
+            Calculate(l) + Calculate(r);
+        }
+        ArProd(l, r) : {
+            Calculate(l) * Calculate(r);
+        }
+        ArSub(l, r) : {
+            Calculate(l) - Calculate(r);
+        }
+        ArDiv(l, r) : {
+            Calculate(l) / Calculate(r);
+        }
+        ArInt(val) : {
+            val;
+        }
+    }
+}
+
+Parse(s: string) -> Maybe<ArExp> {
+    gram = "#include exp.lingo";
+    parser = compilePegGrammar(gram);
+    result = parsic3(parser, s, defaultPegActions, ArInt(0));
+    println(result);
+    if (result.third == "") {
+        Some(result.first);
+    } else {
+        None();
+    }
+}
+
+T2S(exp : ArExp) -> string {
+    switch(exp : ArExp) {
+        ArSum(l, r) : {
+            "(" + T2S(l) + "+" + T2S(r) + ")";
+        }
+        ArProd(l, r) : {
+            "(" + T2S(l) + "*" + T2S(r) + ")";
+        }
+        ArSub(l, r) : {
+            "(" + T2S(l) + "-" + T2S(r) + ")";
+        }
+        ArDiv(l, r) : {
+            "(" + T2S(l) + "/" + T2S(r) + ")";
+        }
+        ArInt(val) : {
+            i2s(val);
+        }
+    }
+}
+
+RpnEl ::= RpnVal, RpnOp;
+RpnVal(val: int);
+RpnOp(op: (int, int) -> int, str: string, toTree: (ArExp, ArExp) -> ArExp);
+
+TranslateToRpn(tree: ArExp) -> [RpnEl]{
+    switch (tree: ArExp){
+        ArSum(l, r) : {
+            concat(concat(TranslateToRpn(l), TranslateToRpn(r)), [RpnOp(\x,y->x+y, "+", \x,y->ArSum(x,y))]);
+        }
+        ArProd(l, r) : {
+            concat(concat(TranslateToRpn(l), TranslateToRpn(r)), [RpnOp(\x,y->x*y, "*", \x,y->ArProd(x,y))]);
+        }
+        ArSub(l, r) : {
+            concat(concat(TranslateToRpn(l), TranslateToRpn(r)), [RpnOp(\x,y->x-y, "-", \x,y->ArSub(x,y))]);
+        }
+        ArDiv(l, r) : {
+            concat(concat(TranslateToRpn(l), TranslateToRpn(r)), [RpnOp(\x,y->x/y, "/", \x,y->ArDiv(x,y))]);
+        }
+        ArInt(val) : {
+            [RpnVal(val)];
+        }
+    } 
+}
+
+RpnEl2S(str: string, rpn: RpnEl) -> string {
+    switch(rpn: RpnEl) {
+        RpnVal(val) : {
+            str + i2s(val) + " "; 
+        }
+        RpnOp(op, s, tt) : {
+            str + s + " ";
+        }
+    }
+}
+
+Rpn2S(rpnArr: [RpnEl]) -> string {
+    fold(rpnArr, "", RpnEl2S);
+}
+
+CalculateRpn(stack: [int], rpn: RpnEl) -> [int] {
+    switch (rpn : RpnEl) {
+        RpnVal(val) : {
+            concat([val], stack);
+        }
+        RpnOp(op, str, tt) : {
+            concat([op(stack[1], stack[0])], subrange(stack, 2, length(stack) - 2));
+        }
+    }
+}
+
+Rpn2i(rpnArr: [RpnEl]) -> int {
+    a = fold(rpnArr, [], CalculateRpn);
+    a[0];
+}
+
+TranslateToTree(stack: [ArExp], rpn: RpnEl) -> [ArExp] {
+    switch (rpn : RpnEl) {
+        RpnVal(val) : {
+            concat([ArInt(val)], stack);
+        }
+        RpnOp(op, str, ToTree) : {
+            concat([ToTree(stack[1], stack[0])], subrange(stack, 2, length(stack) - 2));
+        }
+    }
+}
+
+Rpn2Tree(rpn: [RpnEl]) -> ArExp {
+    a = fold(rpn, [], TranslateToTree);
+    a[0];
+}
+
+main() -> void {
+    a = Parse("((7/2)+3)");
+    switch(a : Maybe<ArExp>) {
+        Some(tree) : {
+            println(T2S(tree));
+            println(Calculate(tree));
+            rpn = TranslateToRpn(tree);
+            println(Rpn2S(rpn));
+            println(Rpn2i(rpn));
+            println(Rpn2Tree(rpn));
+        }
+        None() : println("Something gone wrong\n");
+    }
+}
